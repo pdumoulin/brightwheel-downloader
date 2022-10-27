@@ -1,0 +1,6 @@
+database/.app_data
+media/
+env/
+*.swp
+__pycache__/
+*.pyc
