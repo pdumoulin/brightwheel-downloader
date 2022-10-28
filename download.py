@@ -18,7 +18,6 @@ import requests
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 # TODO - google photos auto-sync with cron
-# TODO - README
 
 
 def main():
@@ -208,15 +207,18 @@ def dl_media(args, db):
             image_url = media.get('image_url')
             if image_url:
 
-                # calculate image url and filename
-                download_filename = os.path.join(
-                    download_dir,
-                    image_url.split('/')[-1].split('?')[0]
-                )
                 # convert str to datetime
                 image_datetime = datetime.strptime(
                     raw_data['event_date'],
                     '%Y-%m-%dT%H:%M:%S.%f%z'
+                )
+                # calculate image url and filename
+                download_filename = os.path.join(
+                    download_dir,
+                    datetime.strftime(
+                        image_datetime,
+                        '%Y%m%d%H%M%SZ'
+                    ) + image_url.split('/')[-1].split('?')[0]
                 )
                 download_image(
                     image_url,
