@@ -32,7 +32,7 @@ class DB(object):
             if x.endswith('.sql')
         }
 
-        # run steup script
+        # run setup script
         self._script(self.queries['setup'])
         del self.queries['setup']
 

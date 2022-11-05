@@ -55,6 +55,5 @@ $ (env) python utils/exif.py <path-to-image-file>
 
 ### Auto Sync with Google Photos
 
-:warning:TODO:
 * https://photos.google.com/apps
-* https://raymii.org/s/tutorials/Local_incremental_Google_Photos_backup_on_Ubuntu.html
+* https://github.com/pdumoulin/gphotos-uploader
