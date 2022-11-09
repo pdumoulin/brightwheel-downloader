@@ -17,8 +17,6 @@ import requests
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
-# TODO - google photos auto-sync with cron
-
 
 def main():
     """Entrypoint."""
@@ -190,6 +188,7 @@ def dl_media(args, db):
     # copy events to avoid modify while iterating
     activities = db.select_activities()
     dl_count = 0
+    skipped = 0
 
     # iterate over each student's data
     for activity in activities:
@@ -197,40 +196,83 @@ def dl_media(args, db):
         student_id = activity['student_id']
         raw_data = json.loads(activity['json'])
 
-        # setup download image dir scroped by student
+        # setup download image dir scoped by student
         download_dir = os.path.join(base_download_dir, student_id)
         if not os.path.isdir(download_dir):
             os.makedirs(download_dir)
 
+        # convert from str to datetime
+        event_datetime = datetime.strptime(
+            raw_data['event_date'],
+            '%Y-%m-%dT%H:%M:%S.%f%z'
+        )
+
+        # images
         media = raw_data['media']
         if media:
             image_url = media.get('image_url')
             if image_url:
 
-                # convert str to datetime
-                image_datetime = datetime.strptime(
-                    raw_data['event_date'],
-                    '%Y-%m-%dT%H:%M:%S.%f%z'
-                )
-                # calculate image url and filename
+                # calculate filename
                 download_filename = os.path.join(
                     download_dir,
                     datetime.strftime(
-                        image_datetime,
+                        event_datetime,
                         '%Y%m%d%H%M%SZ'
                     ) + image_url.split('/')[-1].split('?')[0]
                 )
                 download_image(
                     image_url,
                     download_filename,
-                    image_datetime
+                    event_datetime
                 )
+                dl_count += 1
+
+        # videos
+        video_info = raw_data['video_info']
+        if video_info:
+
+            # skip if video isn't ready to download yet
+            if video_info['transcoding_status'] != 'complete':
+                skipped += 1
+                continue
+
+            video_url = video_info.get('downloadable_url')
+            if video_url:
+
+                # calculate filename
+                video_uuid = video_url.split('/')[-2].replace('-', '')
+                video_ext = video_url.split('/')[-1].split('.')[-1]
+                download_filename = os.path.join(
+                    download_dir,
+                    datetime.strftime(
+                        event_datetime,
+                        '%Y%m%d%H%M%SZ'
+                    ) + video_uuid + '.' + video_ext
+                )
+                download_video(video_url, download_filename)
                 dl_count += 1
 
         # save that activity was processed
         db.update_activity(activity_id)
 
-    print(f'Downloaded {dl_count} images from {len(activities)} records')
+    print(f'Downloaded {dl_count}')
+    print(f'Not Ready  {skipped}')
+    print(f'Total      {len(activities)}')
+
+
+def download_video(url, filename):
+    """Save video to disk.
+
+    Args:
+        url (str): URL of video
+        filename (str): file to download video into
+    """
+    print(f'Downloading from {url} to {filename}')
+    response = requests.get(url, stream=True)
+    with open(filename, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=16*1024):
+            f.write(chunk)
 
 
 def download_image(url, filename, created_datetime):
