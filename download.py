@@ -160,6 +160,7 @@ def save_metadata(client, db, student_id, start_date, end_date):
     page_size = 25
     result_count = 0
     new_count = 0
+    skip_count = 0
     while True:
         print(f'Fetching activities page={page}...')
         batch = client.get_students_activities(
@@ -170,6 +171,14 @@ def save_metadata(client, db, student_id, start_date, end_date):
             page_size=page_size
         )['activities']
         for activity in batch:
+
+            # skip activities with video still being processed
+            video_info = activity['video_info']
+            if video_info:
+                if video_info['transcoding_status'] != 'complete':
+                    skip_count += 1
+                    continue
+
             added = db.insert_activity(student_id, activity)
             if added:
                 new_count += 1
@@ -177,8 +186,9 @@ def save_metadata(client, db, student_id, start_date, end_date):
         if len(batch) < page_size:
             break
         page += 1
-    print(f'Found {result_count} total activities')
-    print(f'Added {new_count} activities')
+    print(f'Not Ready {skip_count}')
+    print(f'Added     {new_count}')
+    print(f'Total     {result_count}')
 
 
 def dl_media(args, db):
@@ -188,7 +198,6 @@ def dl_media(args, db):
     # copy events to avoid modify while iterating
     activities = db.select_activities()
     dl_count = 0
-    skipped = 0
 
     # iterate over each student's data
     for activity in activities:
@@ -232,11 +241,6 @@ def dl_media(args, db):
         video_info = raw_data['video_info']
         if video_info:
 
-            # skip if video isn't ready to download yet
-            if video_info['transcoding_status'] != 'complete':
-                skipped += 1
-                continue
-
             video_url = video_info.get('downloadable_url')
             if video_url:
 
@@ -257,7 +261,6 @@ def dl_media(args, db):
         db.update_activity(activity_id)
 
     print(f'Downloaded {dl_count}')
-    print(f'Not Ready  {skipped}')
     print(f'Total      {len(activities)}')
 
 
