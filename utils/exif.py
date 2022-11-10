@@ -1,6 +1,7 @@
 """Docstring."""
 
 import json
+import pprint
 import sys
 
 from PIL import ExifTags
@@ -18,4 +19,7 @@ with Image.open(filename) as im:
         for k, v in exif.items()
         if k in ExifTags.TAGS
     }
-    print(json.dumps(tags, indent=4))
+    try:
+        print(json.dumps(tags, indent=4))
+    except TypeError:
+        pprint.pprint(tags)
