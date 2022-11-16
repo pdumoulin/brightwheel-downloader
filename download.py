@@ -300,7 +300,12 @@ def download_image(url, filename, created_datetime):
     # update created date
     im = Image.open(raw_data)
     exif = im.getexif()
-    exif.update([(306, created_str)])
+    exif.update(
+        [
+            (306, created_str),    # Exif.Image.DateTime
+            (34858, '+00:00')      # Exif.Image.TimeZoneOffset
+        ]
+    )
     im.save(filename, exif=exif)
 
 
