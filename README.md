@@ -11,6 +11,8 @@ $ source env/bin/activate
 $ (env) pip install -r requirements.txt
 ```
 
+Install [exiftool](https://exiftool.org/) via your favourite package manager. See [exif_notes](https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes) for details about why. If you don't want to set exif data, use the `-s` flag when downloading media.
+
 ### Download Activities Metadata
 
 Authenticate with API and download metadata into sqlite database.
@@ -44,6 +46,7 @@ usage: download.py media [-h] [--dl-dir DL_DIR]
 optional arguments:
   -h, --help       show this help message and exit
   --dl-dir DL_DIR  directory to download media into (default: ./media)
+  -s               skip setting exif tags via exiftool (default: False)
 ```
 
 ### Utils

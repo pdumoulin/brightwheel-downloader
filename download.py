@@ -1,12 +1,11 @@
 """CLI to download activity metadata and media."""
 
 import argparse
-import io
 import json
 import os
+import shlex
+import subprocess
 from datetime import datetime
-
-from PIL import Image
 
 from brightwheel import Client
 
@@ -88,6 +87,11 @@ def main():
         '--dl-dir',
         default=default_media_dir,
         help='directory to download media into'
+    )
+    media_subparser.add_argument(
+        '-s',
+        action='store_true',
+        help='skip setting exif tags via exiftool'
     )
     media_subparser.set_defaults(func=dl_media)
 
@@ -194,6 +198,7 @@ def save_metadata(client, db, student_id, start_date, end_date):
 def dl_media(args, db):
     """Download media based on unprocessed data in db."""
     base_download_dir = args.dl_dir
+    skip_exif_tags = args.s
 
     # copy events to avoid modify while iterating
     activities = db.select_activities()
@@ -230,11 +235,20 @@ def dl_media(args, db):
                         '%Y%m%d%H%M%SZ'
                     ) + image_url.split('/')[-1].split('?')[0]
                 )
+
+                # write image data to disk
                 download_image(
                     image_url,
-                    download_filename,
-                    event_datetime
+                    download_filename
                 )
+
+                # add metadata
+                if not skip_exif_tags:
+                    try:
+                        set_exif_tags(download_filename, event_datetime)
+                    except Exception as e:
+                        os.remove(download_filename)
+                        raise e
                 dl_count += 1
 
         # videos
@@ -278,7 +292,7 @@ def download_video(url, filename):
             f.write(chunk)
 
 
-def download_image(url, filename, created_datetime):
+def download_image(url, filename):
     """Save image to disk, editing exif data.
 
     Args:
@@ -287,26 +301,37 @@ def download_image(url, filename, created_datetime):
         create_datetime (datetime): exif data to inject
     """
     print(f'Downloading from {url} to {filename}')
-    raw_data = io.BytesIO()
     response = requests.get(url, stream=True)
 
-    # stream image data into bytes
-    for chunk in response.iter_content(chunk_size=16*1024):
-        raw_data.write(chunk)
+    # stream image data into file
+    with open(filename, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=16*1024):
+            f.write(chunk)
 
-    # google photos expected format
+
+def set_exif_tags(filename, created_datetime):
+    """Write Google Photos expected exif date tags.
+
+    Args:
+        filename (str): file to download image into
+        create_datetime (datetime): exif date to inject
+    """
+    # https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes
     created_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
+    _set_exif_tag(filename, 'ModifyDate', created_str)  # 306
+    _set_exif_tag(filename, 'OffsetTimeDigitized', '+00:00')  # 36882
 
-    # update created date
-    im = Image.open(raw_data)
-    exif = im.getexif()
-    exif.update(
-        [
-            (306, created_str),    # Exif.Image.DateTime
-            (34858, '+00:00')      # Exif.Image.TimeZoneOffset
-        ]
+
+def _set_exif_tag(filename, name, value):
+    """Write exif tag by calling exiftool directly."""
+    command = f"exiftool -{name}='{value}' -overwrite_original {filename}"
+    subprocess.run(
+        shlex.split(command),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding='utf-8',
+        check=True
     )
-    im.save(filename, exif=exif)
 
 
 def fetch_student_id(client, student):
