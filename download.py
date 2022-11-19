@@ -357,7 +357,7 @@ def _adjust_datetime(dt, timezone):
 
 
 def _set_exif_tags(filename, created_datetime):
-    """Write Google Photos expected exif date tags.
+    """Write Google Photos expected exif date tags (306, 36882).
 
     Args:
         filename (str): file to download image into
@@ -367,13 +367,7 @@ def _set_exif_tags(filename, created_datetime):
     dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
     tz_str = datetime.strftime(created_datetime, '%z')
     tz_str = tz_str[:3] + ':' + tz_str[3:]
-    _set_exif_tag(filename, 'ModifyDate', dt_str)  # 306
-    _set_exif_tag(filename, 'OffsetTimeDigitized', tz_str)  # 36882
-
-
-def _set_exif_tag(filename, name, value):
-    """Write exif tag by calling exiftool directly."""
-    command = f"exiftool -{name}='{value}' -overwrite_original {filename}"
+    command = f"exiftool -ModifyDate='{dt_str}' -OffsetTimeDigitized='{tz_str}' -overwrite_original {filename}"  # noqa:E501
     subprocess.run(
         shlex.split(command),
         stdout=subprocess.PIPE,
