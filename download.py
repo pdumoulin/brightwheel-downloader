@@ -11,6 +11,8 @@ from brightwheel import Client
 
 from database import DB
 
+import pytz
+
 import requests
 
 
@@ -92,6 +94,13 @@ def main():
         '-s',
         action='store_true',
         help='skip setting exif tags via exiftool'
+    )
+    media_subparser.add_argument(
+        '--tz',
+        default='UTC',
+        choices=pytz.all_timezones,
+        metavar='',
+        help='set exif tags to time zone in pytz.all_timezones'
     )
     media_subparser.set_defaults(func=dl_media)
 
@@ -199,6 +208,7 @@ def dl_media(args, db):
     """Download media based on unprocessed data in db."""
     base_download_dir = args.dl_dir
     skip_exif_tags = args.s
+    adjust_tz = args.tz
 
     # copy events to avoid modify while iterating
     activities = db.select_activities()
@@ -210,7 +220,7 @@ def dl_media(args, db):
         student_id = activity['student_id']
         raw_data = json.loads(activity['json'])
 
-        # setup download image dir scoped by student
+        # setup download media dir scoped by student
         download_dir = os.path.join(base_download_dir, student_id)
         if not os.path.isdir(download_dir):
             os.makedirs(download_dir)
@@ -227,48 +237,49 @@ def dl_media(args, db):
             image_url = media.get('image_url')
             if image_url:
 
-                # calculate filename
-                download_filename = os.path.join(
+                # calculate image filename
+                image_filename = _image_filename(
                     download_dir,
-                    datetime.strftime(
-                        event_datetime,
-                        '%Y%m%d%H%M%SZ'
-                    ) + image_url.split('/')[-1].split('?')[0]
+                    image_url,
+                    event_datetime
                 )
 
                 # write image data to disk
                 download_image(
                     image_url,
-                    download_filename
+                    image_filename
                 )
 
                 # add metadata
                 if not skip_exif_tags:
                     try:
-                        set_exif_tags(download_filename, event_datetime)
+                        _set_exif_tags(
+                            image_filename,
+                            _adjust_datetime(event_datetime, adjust_tz)
+                        )
                     except Exception as e:
-                        os.remove(download_filename)
+                        os.remove(image_filename)
                         raise e
                 dl_count += 1
 
         # videos
         video_info = raw_data['video_info']
         if video_info:
-
             video_url = video_info.get('downloadable_url')
             if video_url:
 
-                # calculate filename
-                video_uuid = video_url.split('/')[-2].replace('-', '')
-                video_ext = video_url.split('/')[-1].split('.')[-1]
-                download_filename = os.path.join(
+                # calculate video filename
+                video_filename = _video_filename(
                     download_dir,
-                    datetime.strftime(
-                        event_datetime,
-                        '%Y%m%d%H%M%SZ'
-                    ) + video_uuid + '.' + video_ext
+                    video_url,
+                    event_datetime
                 )
-                download_video(video_url, download_filename)
+
+                # write video data to disk
+                download_video(
+                    video_url,
+                    video_filename
+                )
                 dl_count += 1
 
         # save that activity was processed
@@ -309,7 +320,43 @@ def download_image(url, filename):
             f.write(chunk)
 
 
-def set_exif_tags(filename, created_datetime):
+def _image_filename(download_dir, image_url, event_datetime):
+    return os.path.join(
+        download_dir,
+        datetime.strftime(
+            event_datetime,
+            '%Y%m%d%H%M%SZ'
+        ) + image_url.split('/')[-1].split('?')[0]
+    )
+
+
+def _video_filename(download_dir, video_url, event_datetime):
+    video_uuid = video_url.split('/')[-2].replace('-', '')
+    video_ext = video_url.split('/')[-1].split('.')[-1]
+    return os.path.join(
+        download_dir,
+        datetime.strftime(
+            event_datetime,
+            '%Y%m%d%H%M%SZ'
+        ) + video_uuid + '.' + video_ext
+    )
+
+
+def _adjust_datetime(dt, timezone):
+    """Adjust datetime to new timezone, same UNIX timestamp.
+
+    Args:
+        dt (datetime): time to adjust
+        timezone (str): timezone from pytz.all_timezones
+
+    Returns:
+        datetime
+    """
+    new_tz = pytz.timezone(timezone)
+    return datetime.fromtimestamp(dt.timestamp(), tz=new_tz)
+
+
+def _set_exif_tags(filename, created_datetime):
     """Write Google Photos expected exif date tags.
 
     Args:
@@ -317,9 +364,11 @@ def set_exif_tags(filename, created_datetime):
         create_datetime (datetime): exif date to inject
     """
     # https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes
-    created_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
-    _set_exif_tag(filename, 'ModifyDate', created_str)  # 306
-    _set_exif_tag(filename, 'OffsetTimeDigitized', '+00:00')  # 36882
+    dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
+    tz_str = datetime.strftime(created_datetime, '%z')
+    tz_str = tz_str[:3] + ':' + tz_str[3:]
+    _set_exif_tag(filename, 'ModifyDate', dt_str)  # 306
+    _set_exif_tag(filename, 'OffsetTimeDigitized', tz_str)  # 36882
 
 
 def _set_exif_tag(filename, name, value):

@@ -47,7 +47,10 @@ optional arguments:
   -h, --help       show this help message and exit
   --dl-dir DL_DIR  directory to download media into (default: ./media)
   -s               skip setting exif tags via exiftool (default: False)
+  --tz             set exif tags to time zone in pytz.all_timezones (default: UTC)
 ```
+
+:bulb: Google Photos for Android mixes all your albums together and ignores timezone data. Set `--tz` to the most common timezone in your photo feed to mitigate unexpected ordering.
 
 ### Utils
 
