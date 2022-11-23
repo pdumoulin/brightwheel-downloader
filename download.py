@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from datetime import datetime
 
 from brightwheel import Client
@@ -14,6 +15,8 @@ from database import DB
 import pytz
 
 import requests
+
+from timezonefinder import TimezoneFinder
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -96,11 +99,16 @@ def main():
         help='skip setting exif tags via exiftool'
     )
     media_subparser.add_argument(
-        '--tz',
-        default='UTC',
-        choices=pytz.all_timezones,
-        metavar='',
-        help='set exif tags to time zone in pytz.all_timezones'
+        '--lat',
+        type=float,
+        required='--lon' in sys.argv,
+        help='Latitude metadata to add, used for timezone offsetting'
+    )
+    media_subparser.add_argument(
+        '--lon',
+        type=float,
+        required='--lat' in sys.argv,
+        help='Longitude metadata to add, used for timezone offsetting'
     )
     media_subparser.set_defaults(func=dl_media)
 
@@ -208,7 +216,8 @@ def dl_media(args, db):
     """Download media based on unprocessed data in db."""
     base_download_dir = args.dl_dir
     skip_exif_tags = args.s
-    adjust_tz = args.tz
+    latitude = args.lat
+    longitude = args.lon
 
     # copy events to avoid modify while iterating
     activities = db.select_activities()
@@ -253,9 +262,10 @@ def dl_media(args, db):
                 # add metadata
                 if not skip_exif_tags:
                     try:
-                        _set_exif_tags(
+                        _set_image_exif_tags(
                             image_filename,
-                            _adjust_datetime(event_datetime, adjust_tz)
+                            event_datetime,
+                            (latitude, longitude)
                         )
                     except Exception as e:
                         os.remove(image_filename)
@@ -280,6 +290,18 @@ def dl_media(args, db):
                     video_url,
                     video_filename
                 )
+
+                # add metadata
+                if not skip_exif_tags:
+                    try:
+                        _set_video_exif_tags(
+                            video_filename,
+                            event_datetime,
+                            (latitude, longitude)
+                        )
+                    except Exception as e:
+                        os.remove(video_filename)
+                        raise e
                 dl_count += 1
 
         # save that activity was processed
@@ -342,32 +364,65 @@ def _video_filename(download_dir, video_url, event_datetime):
     )
 
 
-def _adjust_datetime(dt, timezone):
-    """Adjust datetime to new timezone, same UNIX timestamp.
+def _set_image_exif_tags(filename, created_datetime, lat_lon):
+    tags = []
+    if all(lat_lon):
 
-    Args:
-        dt (datetime): time to adjust
-        timezone (str): timezone from pytz.all_timezones
+        # localize timestamp based on gps data
+        tf = TimezoneFinder()
+        created_datetime = datetime.fromtimestamp(
+            created_datetime.timestamp(),
+            tz=pytz.timezone(tf.timezone_at(lat=lat_lon[0], lng=lat_lon[1]))
+        )
 
-    Returns:
-        datetime
-    """
-    new_tz = pytz.timezone(timezone)
-    return datetime.fromtimestamp(dt.timestamp(), tz=new_tz)
+        # add gps data tags
+        lat_hemi = 'S' if lat_lon[0] < 0 else 'N'
+        lon_hemi = 'W' if lat_lon[1] < 0 else 'E'
+        tags += [
+            ('gpslatitude', lat_lon[0]),
+            ('gpslongitude', lat_lon[1]),
+            ('gpslatituderef', lat_hemi),
+            ('gpslongituderef', lon_hemi)
+        ]
 
-
-def _set_exif_tags(filename, created_datetime):
-    """Write Google Photos expected exif date tags (306, 36882).
-
-    Args:
-        filename (str): file to download image into
-        create_datetime (datetime): exif date to inject
-    """
-    # https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes
+    # add datetime and tz offset tags
     dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
     tz_str = datetime.strftime(created_datetime, '%z')
     tz_str = tz_str[:3] + ':' + tz_str[3:]
-    command = f"exiftool -ModifyDate='{dt_str}' -OffsetTimeDigitized='{tz_str}' -overwrite_original {filename}"  # noqa:E501
+    tags += [
+        ('ModifyDate', dt_str),
+        ('OffsetTimeDigitized', tz_str)
+    ]
+    _set_exif_tags(filename, tags)
+
+
+def _set_video_exif_tags(filename, created_datetime, lat_lon):
+    tags = []
+    if all(lat_lon):
+
+        # add gps tag
+        tags.append(('GPSCoordinates', f'{lat_lon[0]}, {lat_lon[1]}, 0'))
+
+    # add datetime tag (timezone not supported)
+    dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
+    tags.append(('CreateDate', dt_str))
+    _set_exif_tags(filename, tags)
+
+
+def _set_exif_tags(filename, tags):
+    """Write exif tags using exiftool.
+
+    Args:
+        filename (str): file to set tags on
+        tags (list[tuple]): tag name + value pairs
+
+    https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes
+    """
+    tag_flags = ' '.join([
+        f"-{x[0]}='{x[1]}'"
+        for x in tags
+    ])
+    command = f'exiftool {tag_flags} -overwrite_original {filename}'
     subprocess.run(
         shlex.split(command),
         stdout=subprocess.PIPE,
