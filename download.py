@@ -401,7 +401,9 @@ def _set_video_exif_tags(filename, created_datetime, lat_lon):
     if all(lat_lon):
 
         # add gps tag
-        tags.append(('GPSCoordinates', f'{lat_lon[0]}, {lat_lon[1]}, 0'))
+        tags.append(
+            ('Keys:GPSCoordinates', f'{lat_lon[0]:.4f}, {lat_lon[1]:.4f}, 0')
+        )
 
     # add datetime tag (timezone not supported)
     dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
