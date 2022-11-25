@@ -99,6 +99,11 @@ def main():
         help='skip setting exif tags via exiftool'
     )
     media_subparser.add_argument(
+        '-f',
+        action='store_true',
+        help='download even if file already exists'
+    )
+    media_subparser.add_argument(
         '--lat',
         type=float,
         required='--lon' in sys.argv,
@@ -216,12 +221,14 @@ def dl_media(args, db):
     """Download media based on unprocessed data in db."""
     base_download_dir = args.dl_dir
     skip_exif_tags = args.s
+    force_dl = args.f
     latitude = args.lat
     longitude = args.lon
 
     # copy events to avoid modify while iterating
     activities = db.select_activities()
     dl_count = 0
+    tag_count = 0
 
     # iterate over each student's data
     for activity in activities:
@@ -240,6 +247,8 @@ def dl_media(args, db):
             '%Y-%m-%dT%H:%M:%S.%f%z'
         )
 
+        # TODO - split into classes, prevent repeated pattern
+
         # images
         media = raw_data['media']
         if media:
@@ -254,10 +263,12 @@ def dl_media(args, db):
                 )
 
                 # write image data to disk
-                download_image(
-                    image_url,
-                    image_filename
-                )
+                if not os.path.exists(image_filename) or force_dl:
+                    download_image(
+                        image_url,
+                        image_filename
+                    )
+                    dl_count += 1
 
                 # add metadata
                 if not skip_exif_tags:
@@ -267,10 +278,10 @@ def dl_media(args, db):
                             event_datetime,
                             (latitude, longitude)
                         )
+                        tag_count += 1
                     except Exception as e:
                         os.remove(image_filename)
                         raise e
-                dl_count += 1
 
         # videos
         video_info = raw_data['video_info']
@@ -286,10 +297,12 @@ def dl_media(args, db):
                 )
 
                 # write video data to disk
-                download_video(
-                    video_url,
-                    video_filename
-                )
+                if not os.path.exists(video_filename) or force_dl:
+                    download_video(
+                        video_url,
+                        video_filename
+                    )
+                    dl_count += 1
 
                 # add metadata
                 if not skip_exif_tags:
@@ -299,15 +312,16 @@ def dl_media(args, db):
                             event_datetime,
                             (latitude, longitude)
                         )
+                        tag_count += 1
                     except Exception as e:
                         os.remove(video_filename)
                         raise e
-                dl_count += 1
 
         # save that activity was processed
         db.update_activity(activity_id)
 
     print(f'Downloaded {dl_count}')
+    print(f'Tagged     {tag_count}')
     print(f'Total      {len(activities)}')
 
 
