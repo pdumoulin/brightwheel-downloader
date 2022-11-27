@@ -3,8 +3,6 @@
 import argparse
 import json
 import os
-import shlex
-import subprocess
 import sys
 from datetime import datetime
 
@@ -12,11 +10,8 @@ from brightwheel import Client
 
 from database import DB
 
-import pytz
-
-import requests
-
-from timezonefinder import TimezoneFinder
+from processors import ImageProcessor
+from processors import VideoProcessor
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -220,15 +215,21 @@ def save_metadata(client, db, student_id, start_date, end_date):
 def dl_media(args, db):
     """Download media based on unprocessed data in db."""
     base_download_dir = args.dl_dir
-    skip_exif_tags = args.s
+    write_tags = not args.s
     force_dl = args.f
     latitude = args.lat
     longitude = args.lon
 
-    # copy events to avoid modify while iterating
+    # get activities needing to be processed
     activities = db.select_activities()
     dl_count = 0
     tag_count = 0
+
+    # media types to process
+    processors = [
+        ImageProcessor(),
+        VideoProcessor()
+    ]
 
     # iterate over each student's data
     for activity in activities:
@@ -241,81 +242,21 @@ def dl_media(args, db):
         if not os.path.isdir(download_dir):
             os.makedirs(download_dir)
 
-        # convert from str to datetime
-        event_datetime = datetime.strptime(
-            raw_data['event_date'],
-            '%Y-%m-%dT%H:%M:%S.%f%z'
-        )
-
-        # TODO - split into classes, prevent repeated pattern
-
-        # images
-        media = raw_data['media']
-        if media:
-            image_url = media.get('image_url')
-            if image_url:
-
-                # calculate image filename
-                image_filename = _image_filename(
-                    download_dir,
-                    image_url,
-                    event_datetime
-                )
-
-                # write image data to disk
-                if not os.path.exists(image_filename) or force_dl:
-                    download_image(
-                        image_url,
-                        image_filename
-                    )
+        # look for media that can be processed
+        for processor in processors:
+            (processed, downloaded, tagged) = processor.process(
+                download_dir,
+                raw_data,
+                write_tags=write_tags,
+                force_dl=force_dl,
+                latitude=latitude,
+                longitude=longitude
+            )
+            if processed:
+                if downloaded:
                     dl_count += 1
-
-                # add metadata
-                if not skip_exif_tags:
-                    try:
-                        _set_image_exif_tags(
-                            image_filename,
-                            event_datetime,
-                            (latitude, longitude)
-                        )
-                        tag_count += 1
-                    except Exception as e:
-                        os.remove(image_filename)
-                        raise e
-
-        # videos
-        video_info = raw_data['video_info']
-        if video_info:
-            video_url = video_info.get('downloadable_url')
-            if video_url:
-
-                # calculate video filename
-                video_filename = _video_filename(
-                    download_dir,
-                    video_url,
-                    event_datetime
-                )
-
-                # write video data to disk
-                if not os.path.exists(video_filename) or force_dl:
-                    download_video(
-                        video_url,
-                        video_filename
-                    )
-                    dl_count += 1
-
-                # add metadata
-                if not skip_exif_tags:
-                    try:
-                        _set_video_exif_tags(
-                            video_filename,
-                            event_datetime,
-                            (latitude, longitude)
-                        )
-                        tag_count += 1
-                    except Exception as e:
-                        os.remove(video_filename)
-                        raise e
+                if tagged:
+                    tag_count += 1
 
         # save that activity was processed
         db.update_activity(activity_id)
@@ -323,129 +264,6 @@ def dl_media(args, db):
     print(f'Downloaded {dl_count}')
     print(f'Tagged     {tag_count}')
     print(f'Total      {len(activities)}')
-
-
-def download_video(url, filename):
-    """Save video to disk.
-
-    Args:
-        url (str): URL of video
-        filename (str): file to download video into
-    """
-    print(f'Downloading from {url} to {filename}')
-    response = requests.get(url, stream=True)
-    with open(filename, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=16*1024):
-            f.write(chunk)
-
-
-def download_image(url, filename):
-    """Save image to disk, editing exif data.
-
-    Args:
-        url (str): URL of image
-        filename (str): file to download image into
-        create_datetime (datetime): exif data to inject
-    """
-    print(f'Downloading from {url} to {filename}')
-    response = requests.get(url, stream=True)
-
-    # stream image data into file
-    with open(filename, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=16*1024):
-            f.write(chunk)
-
-
-def _image_filename(download_dir, image_url, event_datetime):
-    return os.path.join(
-        download_dir,
-        datetime.strftime(
-            event_datetime,
-            '%Y%m%d%H%M%SZ'
-        ) + image_url.split('/')[-1].split('?')[0]
-    )
-
-
-def _video_filename(download_dir, video_url, event_datetime):
-    video_uuid = video_url.split('/')[-2].replace('-', '')
-    video_ext = video_url.split('/')[-1].split('.')[-1]
-    return os.path.join(
-        download_dir,
-        datetime.strftime(
-            event_datetime,
-            '%Y%m%d%H%M%SZ'
-        ) + video_uuid + '.' + video_ext
-    )
-
-
-def _set_image_exif_tags(filename, created_datetime, lat_lon):
-    tags = []
-    if all(lat_lon):
-
-        # localize timestamp based on gps data
-        tf = TimezoneFinder()
-        created_datetime = datetime.fromtimestamp(
-            created_datetime.timestamp(),
-            tz=pytz.timezone(tf.timezone_at(lat=lat_lon[0], lng=lat_lon[1]))
-        )
-
-        # add gps data tags
-        lat_hemi = 'S' if lat_lon[0] < 0 else 'N'
-        lon_hemi = 'W' if lat_lon[1] < 0 else 'E'
-        tags += [
-            ('gpslatitude', lat_lon[0]),
-            ('gpslongitude', lat_lon[1]),
-            ('gpslatituderef', lat_hemi),
-            ('gpslongituderef', lon_hemi)
-        ]
-
-    # add datetime and tz offset tags
-    dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
-    tz_str = datetime.strftime(created_datetime, '%z')
-    tz_str = tz_str[:3] + ':' + tz_str[3:]
-    tags += [
-        ('ModifyDate', dt_str),
-        ('OffsetTimeDigitized', tz_str)
-    ]
-    _set_exif_tags(filename, tags)
-
-
-def _set_video_exif_tags(filename, created_datetime, lat_lon):
-    tags = []
-    if all(lat_lon):
-
-        # add gps tag
-        tags.append(
-            ('Keys:GPSCoordinates', f'{lat_lon[0]:.4f}, {lat_lon[1]:.4f}, 0')
-        )
-
-    # add datetime tag (timezone not supported)
-    dt_str = datetime.strftime(created_datetime, '%Y:%m:%d %H:%M:%S')
-    tags.append(('CreateDate', dt_str))
-    _set_exif_tags(filename, tags)
-
-
-def _set_exif_tags(filename, tags):
-    """Write exif tags using exiftool.
-
-    Args:
-        filename (str): file to set tags on
-        tags (list[tuple]): tag name + value pairs
-
-    https://github.com/pdumoulin/gphotos-uploader/tree/main/exif_notes
-    """
-    tag_flags = ' '.join([
-        f"-{x[0]}='{x[1]}'"
-        for x in tags
-    ])
-    command = f'exiftool {tag_flags} -overwrite_original {filename}'
-    subprocess.run(
-        shlex.split(command),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        encoding='utf-8',
-        check=True
-    )
 
 
 def fetch_student_id(client, student):
