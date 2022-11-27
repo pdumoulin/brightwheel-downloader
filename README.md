@@ -41,23 +41,18 @@ Currently, downloading images in the only feature.
 :bulb: Date created exif data compatible with Google Photos automatically added.
 
 ```
-usage: download.py media [-h] [--dl-dir DL_DIR]
+usage: download.py media [-h] [--dl-dir DL_DIR] [-s] [-f] [--lat LAT] [--lon LON]
 
 optional arguments:
   -h, --help       show this help message and exit
-  --dl-dir DL_DIR  directory to download media into (default: ./media)
+  --dl-dir DL_DIR  directory to download media into (default: /home/pi/projects/brightwheel-downloader/media)
   -s               skip setting exif tags via exiftool (default: False)
-  --tz             set exif tags to time zone in pytz.all_timezones (default: UTC)
+  -f               download even if file already exists (default: False)
+  --lat LAT        Latitude metadata to add, used for timezone offsetting (default: None)
+  --lon LON        Longitude metadata to add, used for timezone offsetting (default: None)
 ```
 
-:bulb: Google Photos for Android mixes all your albums together and ignores timezone data. Set `--tz` to the most common timezone in your photo feed to mitigate unexpected ordering.
-
-### Utils
-
-Output exif photo data for debugging purposes.
-```
-$ (env) python utils/exif.py <path-to-image-file>
-```
+:bulb: Google Photos for Android mixes all your albums together and ignores timezone data. Set `--lat` and `--lon` to set timezone.
 
 ### Auto Sync with Google Photos
 
