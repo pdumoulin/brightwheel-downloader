@@ -286,7 +286,7 @@ def fetch_student_id(client, student):
     matched_students = [
         x
         for x in students
-        if student in f"{x['student']['first_name']} {x['student']['last_name']}"  # noqa:E501
+        if student in f"{x['student']['first_name']} {x['student']['last_name']}" or x['student']['object_id'] == student  # noqa:E501
     ]
     if not matched_students:
         exit(f'Unable to find "{student}"!')
