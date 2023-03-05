@@ -222,6 +222,7 @@ class VideoProcessor(BaseProcessor):
 
     def media_filename(self, download_dir, media_url, event_datetime):
         """See base class docstring."""
+        media_url = media_url.split('?')[0]
         video_uuid = media_url.split('/')[-2].replace('-', '')
         video_ext = media_url.split('/')[-1].split('.')[-1]
         return os.path.join(
