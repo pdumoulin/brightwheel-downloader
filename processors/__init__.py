@@ -143,6 +143,8 @@ class BaseProcessor(object):
                 extension = content_type.split('/')[1]
             except IndexError:
                 raise Exception('Invalid header in response')
+            if extension == 'jpeg':
+                extension = 'jpg'
             new_filename = f'{split_filename}.{extension}'
             os.rename(old_filename, new_filename)
             return new_filename
