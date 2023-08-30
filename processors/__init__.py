@@ -1,5 +1,6 @@
 """Media processor classes."""
 
+import glob
 import os
 import shlex
 import subprocess
@@ -83,9 +84,11 @@ class BaseProcessor(object):
                 media_url,
                 event_datetime
             )
-            if not os.path.exists(media_filename) or force_dl:
-                self.download(media_url, media_filename)
+
+            if not glob.glob(f'{media_filename}*') or force_dl:
+                media_filename = self.download(media_url, media_filename)
                 downloaded = True
+
             if write_tags:
                 try:
                     self.set_tags(
@@ -106,11 +109,44 @@ class BaseProcessor(object):
         Args:
             url (str): URL of media
             filename (str): file to download media into
+
+        Raises:
+            requests.exceptions.HTTPError
         """
         response = requests.get(url, stream=True)
+        response.raise_for_status()
         with open(filename, 'wb') as f:
             for chunk in response.iter_content(chunk_size=16*1024):
                 f.write(chunk)
+        return self.repair_extension(response, filename)
+
+    def repair_extension(self, response, old_filename):
+        """Determine extension if not set already.
+
+        Args:
+            response (requests.response): HTTP response
+            old_filename (str): filename containing response body
+
+        Returns:
+            str: new filename
+
+        Raises
+            exception
+        """
+        (split_filename, split_extension) = os.path.splitext(old_filename)
+        if not split_extension:
+            try:
+                content_type = response.headers['Content-Type']
+            except IndexError:
+                raise Exception('Header not in response')
+            try:
+                extension = content_type.split('/')[1]
+            except IndexError:
+                raise Exception('Invalid header in response')
+            new_filename = f'{split_filename}.{extension}'
+            os.rename(old_filename, new_filename)
+            return new_filename
+        return old_filename
 
     def write_tags(self, filename, tags):
         """Write exif tags using exiftool.
@@ -145,6 +181,10 @@ class ImageProcessor(BaseProcessor):
     def set_tags(self, filename, event_datetime, lat_lon):
         """See base class docstring."""
         tags = []
+
+        # TODO - why does GPhotos not respect for PNG?
+        # are the tags being set correctly in that case?
+
         if all(lat_lon):
 
             # localize timestamp based on gps data
@@ -178,12 +218,21 @@ class ImageProcessor(BaseProcessor):
 
     def media_filename(self, download_dir, media_url, event_datetime):
         """See base class docstring."""
+        file_id = None
+        media_url = media_url.split('?')[0]
+        url_parts = media_url.split('/')
+        if media_url.endswith('jpg'):
+            file_id = url_parts[-1]
+        elif url_parts[-1] == 'data-media':
+            file_id = url_parts[-2]
+        else:
+            raise Exception(f'Unexpected media_url format {media_url}')
         return os.path.join(
             download_dir,
             datetime.strftime(
                 event_datetime,
                 '%Y%m%d%H%M%SZ'
-            ) + media_url.split('/')[-1].split('?')[0]
+            ) + file_id
         )
 
     def get_url(self, event):
