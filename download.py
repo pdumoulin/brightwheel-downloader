@@ -68,7 +68,7 @@ def main():
     metadata_subparser.add_argument(
         '-l',
         action='store_true',
-        help='ignore stored auth'
+        help='ignore stored auth and replace after login'
     )
     metadata_subparser.add_argument(
         '-f',
@@ -143,7 +143,7 @@ def dl_metadata(args, db):
         headless=headless,
         force_login=force_login
     )
-    if not stored_auth:
+    if not stored_auth or force_login:
         db.insert_cookie(
             login,
             client.session_auth()
