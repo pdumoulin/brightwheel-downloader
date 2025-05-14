@@ -2,6 +2,8 @@
 
 import getpass
 
+from fake_useragent import UserAgent
+
 import requests
 
 URL_BASE = 'https://schools.mybrightwheel.com/api/v1/'
@@ -11,7 +13,7 @@ AUTH_HEADERS = {
     'X-Client-Name': 'web',
     'Origin': 'https://schools.mybrightwheel.com',
     'Referer': 'https://schools.mybrightwheel.com/sign-in',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:95.0) Gecko/20100101 Firefox/95.0'  # noqa:E501
+    'User-Agent': UserAgent().random
 }
 COOKIE_NAME = '_brightwheel_v2'
 COOKIE_DOMAIN = '.mybrightwheel.com'

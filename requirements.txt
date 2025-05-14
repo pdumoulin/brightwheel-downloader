@@ -1,3 +1,4 @@
+fake-useragent==2.2.0
 requests==2.26.0
 pytz==2022.6
 timezonefinder==6.1.7
